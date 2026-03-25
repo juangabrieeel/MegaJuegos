@@ -38,7 +38,7 @@ export default {
     return {
       games,
       // Muestra al menos 3 tarjetas en total (rellena con placeholders)
-      minCards: 6
+      minCards: 9
     }
   },
   computed: {
