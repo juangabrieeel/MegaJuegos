@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2048</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #39ff14; --pink: #ff2d78; --cyan: #00f5ff;
+      --yellow: #ffe600; --bg: #0a0a0f; --font: 'Press Start 2P', monospace;
+    }
+    body {
+      background: var(--bg); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; height: 100vh;
+      font-family: var(--font); overflow: hidden;
+      background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px);
+    }
+    #hud { display: flex; justify-content: space-between; width: 360px; margin-bottom: 12px; }
+    .hud-item { font-size: 0.48rem; color: var(--cyan); letter-spacing: 0.1em; }
+    .hud-item span { color: var(--yellow); text-shadow: 0 0 8px var(--yellow); }
+
+    #board-wrap {
+      position: relative;
+      width: 360px; height: 360px;
+      background: #0f0f1a;
+      border: 2px solid var(--cyan);
+      box-shadow: 0 0 15px var(--cyan), 0 0 40px rgba(0,245,255,0.1);
+      padding: 8px;
+      display: grid; grid-template-columns: repeat(4,1fr); gap: 8px;
+    }
+
+    .cell {
+      background: #1a1a2e;
+      border: 1px solid #1e1e3a;
+      border-radius: 2px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-family: var(--font);
+      transition: transform 0.08s;
+      position: relative;
+      overflow: hidden;
+    }
+    .cell.pop { animation: pop 0.12s ease; }
+    @keyframes pop { 0%{transform:scale(1)} 50%{transform:scale(1.15)} 100%{transform:scale(1)} }
+
+    /* Colores por valor */
+    .v2    { color: #39ff14; border-color: #39ff1455; text-shadow: 0 0 8px #39ff14; }
+    .v4    { color: #00f5ff; border-color: #00f5ff55; text-shadow: 0 0 8px #00f5ff; }
+    .v8    { color: #ffe600; border-color: #ffe60055; text-shadow: 0 0 8px #ffe600; background: #1a1a10; }
+    .v16   { color: #ff6600; border-color: #ff660055; text-shadow: 0 0 8px #ff6600; background: #1a1208; }
+    .v32   { color: #ff2d78; border-color: #ff2d7855; text-shadow: 0 0 8px #ff2d78; background: #1a0812; }
+    .v64   { color: #ff2d78; border-color: #ff2d78aa; text-shadow: 0 0 14px #ff2d78; background: #200510; font-size: 0.6rem; }
+    .v128  { color: #bf00ff; border-color: #bf00ffaa; text-shadow: 0 0 14px #bf00ff; background: #150020; font-size: 0.55rem; }
+    .v256  { color: #bf00ff; border-color: #bf00ff; box-shadow: 0 0 10px #bf00ff; background: #150020; font-size: 0.5rem; }
+    .v512  { color: #00f5ff; border-color: #00f5ff; box-shadow: 0 0 14px #00f5ff; background: #001a1a; font-size: 0.5rem; }
+    .v1024 { color: #ffe600; border-color: #ffe600; box-shadow: 0 0 18px #ffe600; background: #1a1400; font-size: 0.4rem; }
+    .v2048 { color: #fff; border-color: #fff; box-shadow: 0 0 24px #fff, inset 0 0 20px rgba(255,255,255,0.1); background: #111; font-size: 0.4rem; animation: pulse2048 0.6s ease infinite alternate; }
+    @keyframes pulse2048 { from{box-shadow:0 0 20px #fff} to{box-shadow:0 0 40px #fff, 0 0 60px #ffe600} }
+
+    #overlay {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1.2rem;
+      background: rgba(10,10,15,0.92); z-index: 10;
+    }
+    #overlay.hidden { display: none; }
+    .overlay-title {
+      font-size: clamp(0.7rem, 2vw, 1rem); color: var(--cyan);
+      text-shadow: 0 0 12px var(--cyan); text-align: center; line-height: 2.2;
+      animation: flicker 4s step-end infinite;
+    }
+    .overlay-title.lose { color: var(--pink); text-shadow: 0 0 12px var(--pink); animation: none; }
+    .overlay-title.win  { color: var(--yellow); text-shadow: 0 0 12px var(--yellow); animation: none; }
+    .overlay-score { font-size: 0.55rem; color: var(--yellow); text-shadow: 0 0 8px var(--yellow); letter-spacing: 0.15em; }
+    .hidden { display: none !important; }
+    .btn {
+      font-family: var(--font); font-size: 0.55rem; color: var(--bg);
+      background: var(--cyan); border: none; padding: 0.6rem 1.2rem;
+      cursor: pointer; letter-spacing: 0.1em; box-shadow: 0 0 12px var(--cyan); transition: transform 0.1s;
+    }
+    .btn:hover { transform: scale(1.05); }
+    .hint { font-size: 0.38rem; color: #444; letter-spacing: 0.08em; text-align: center; line-height: 2.2; }
+    @keyframes flicker { 0%,100%{opacity:1} 90%{opacity:1} 91%{opacity:0.3} 94%{opacity:1} 97%{opacity:0.3} }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="hud-item">SCORE <span id="scoreDisplay">0</span></div>
+    <div class="hud-item">BEST  <span id="bestDisplay">0</span></div>
+    <div class="hud-item">GOAL  <span style="color:var(--green);text-shadow:0 0 8px var(--green)">2048</span></div>
+  </div>
+
+  <div id="board-wrap" id="board"></div>
+
+  <div id="overlay">
+    <div class="overlay-title" id="overlayTitle">2048</div>
+    <div class="overlay-score hidden" id="overlayScore"></div>
+    <button class="btn" id="startBtn">▶ START</button>
+    <div class="hint">← → ↑ ↓ / WASD para mover<br>Combina para llegar a 2048</div>
+  </div>
+
+<script>
+const boardEl      = document.getElementById('board-wrap')
+const overlay      = document.getElementById('overlay')
+const overlayTitle = document.getElementById('overlayTitle')
+const overlayScore = document.getElementById('overlayScore')
+const startBtn     = document.getElementById('startBtn')
+const scoreDisplay = document.getElementById('scoreDisplay')
+const bestDisplay  = document.getElementById('bestDisplay')
+
+const SIZE = 4
+let grid, score, best = 0, running, won
+
+// ── Grid ─────────────────────────────────────────────────────
+function emptyGrid() { return Array.from({length:SIZE}, () => Array(SIZE).fill(0)) }
+
+function addRandom(g) {
+  const empty = []
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) if (!g[r][c]) empty.push([r,c])
+  if (!empty.length) return
+  const [r,c] = empty[Math.floor(Math.random()*empty.length)]
+  g[r][c] = Math.random() < 0.85 ? 2 : 4
+}
+
+function init() {
+  grid = emptyGrid(); score = 0; running = true; won = false
+  addRandom(grid); addRandom(grid)
+  render()
+}
+
+// ── Render ───────────────────────────────────────────────────
+function render(popCells = []) {
+  boardEl.innerHTML = ''
+  for (let r=0;r<SIZE;r++) {
+    for (let c=0;c<SIZE;c++) {
+      const v = grid[r][c]
+      const cell = document.createElement('div')
+      cell.className = 'cell' + (v ? ' v'+Math.min(v,2048) : '')
+      if (popCells.some(p => p[0]===r && p[1]===c)) cell.classList.add('pop')
+      cell.textContent = v || ''
+      boardEl.appendChild(cell)
+    }
+  }
+  scoreDisplay.textContent = score
+  bestDisplay.textContent  = Math.max(score, best)
+}
+
+// ── Movimiento ───────────────────────────────────────────────
+function slideRow(row) {
+  let arr = row.filter(v => v)
+  const pops = []
+  for (let i=0; i<arr.length-1; i++) {
+    if (arr[i] === arr[i+1]) {
+      arr[i] *= 2; score += arr[i]; arr[i+1] = 0; pops.push(i); i++
+    }
+  }
+  arr = arr.filter(v => v)
+  while (arr.length < SIZE) arr.push(0)
+  return { row: arr, pops }
+}
+
+function move(dir) {
+  if (!running) return
+  let moved = false
+  const newGrid = emptyGrid()
+  const popCells = []
+
+  for (let i=0; i<SIZE; i++) {
+    let line, result
+    if (dir === 'left') {
+      line = grid[i].slice()
+      result = slideRow(line)
+      result.pops.forEach(p => popCells.push([i, p]))
+      if (result.row.join() !== grid[i].join()) moved = true
+      newGrid[i] = result.row
+    } else if (dir === 'right') {
+      line = grid[i].slice().reverse()
+      result = slideRow(line)
+      result.pops.forEach(p => popCells.push([i, SIZE-1-p]))
+      const r = result.row.reverse()
+      if (r.join() !== grid[i].join()) moved = true
+      newGrid[i] = r
+    } else if (dir === 'up') {
+      line = grid.map(row => row[i])
+      result = slideRow(line)
+      result.pops.forEach(p => popCells.push([p, i]))
+      if (result.row.join() !== line.join()) moved = true
+      result.row.forEach((v,r) => newGrid[r][i] = v)
+    } else if (dir === 'down') {
+      line = grid.map(row => row[i]).reverse()
+      result = slideRow(line)
+      result.pops.forEach(p => popCells.push([SIZE-1-p, i]))
+      const r = result.row.reverse()
+      if (r.join() !== line.reverse().join()) moved = true
+      r.forEach((v,row) => newGrid[row][i] = v)
+    }
+  }
+
+  if (!moved) return
+  grid = newGrid
+  addRandom(grid)
+  render(popCells)
+
+  // Victoria
+  if (!won && grid.flat().includes(2048)) {
+    won = true
+    setTimeout(() => endGame(true), 300)
+    return
+  }
+  // Derrota
+  if (!canMove()) setTimeout(() => endGame(false), 300)
+}
+
+function canMove() {
+  for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
+    if (!grid[r][c]) return true
+    if (c<SIZE-1 && grid[r][c]===grid[r][c+1]) return true
+    if (r<SIZE-1 && grid[r][c]===grid[r+1][c]) return true
+  }
+  return false
+}
+
+// ── End ──────────────────────────────────────────────────────
+function endGame(won) {
+  running = false
+  if (score > best) best = score
+  overlayTitle.textContent = won ? '🏆 2048!' : '💀 GAME OVER'
+  overlayTitle.className   = 'overlay-title ' + (won ? 'win' : 'lose')
+  overlayScore.textContent = `SCORE: ${score}`
+  overlayScore.classList.remove('hidden')
+  startBtn.textContent = '↺ RETRY'
+  overlay.classList.remove('hidden')
+}
+
+// ── Controles ────────────────────────────────────────────────
+const dirMap = {
+  ArrowLeft:'left', ArrowRight:'right', ArrowUp:'up', ArrowDown:'down',
+  a:'left', d:'right', w:'up', s:'down',
+  A:'left', D:'right', W:'up', S:'down'
+}
+document.addEventListener('keydown', e => {
+  if (dirMap[e.key]) { e.preventDefault(); move(dirMap[e.key]) }
+})
+
+// Touch / swipe
+let tx0, ty0
+document.addEventListener('touchstart', e => { tx0=e.touches[0].clientX; ty0=e.touches[0].clientY }, {passive:true})
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - tx0
+  const dy = e.changedTouches[0].clientY - ty0
+  if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 'right' : 'left')
+  else move(dy > 0 ? 'down' : 'up')
+})
+
+startBtn.addEventListener('click', () => {
+  overlay.classList.add('hidden')
+  init()
+})
+</script>
+</body>
+</html>

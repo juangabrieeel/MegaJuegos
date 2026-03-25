@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pong</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #39ff14; --pink: #ff2d78; --cyan: #00f5ff;
+      --yellow: #ffe600; --bg: #0a0a0f; --font: 'Press Start 2P', monospace;
+    }
+    body {
+      background: var(--bg); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; height: 100vh;
+      font-family: var(--font); overflow: hidden;
+      background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px);
+    }
+    #gameCanvas {
+      border: 2px solid var(--pink);
+      box-shadow: 0 0 15px var(--pink), 0 0 40px rgba(255,45,120,0.15);
+      display: block;
+    }
+    #overlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1.2rem;
+      background: rgba(10,10,15,0.92);
+    }
+    #overlay.hidden { display: none; }
+    .overlay-title {
+      font-size: clamp(0.7rem, 2vw, 1rem); color: var(--pink);
+      text-shadow: 0 0 12px var(--pink); text-align: center; line-height: 2.2;
+      animation: flicker 4s step-end infinite;
+    }
+    .overlay-title.win  { color: var(--green); text-shadow: 0 0 12px var(--green); animation: none; }
+    .overlay-title.lose { color: var(--pink);  text-shadow: 0 0 12px var(--pink);  animation: none; }
+    .overlay-score { font-size: 0.55rem; color: var(--yellow); text-shadow: 0 0 8px var(--yellow); letter-spacing: 0.15em; }
+    .hidden { display: none !important; }
+    .btn {
+      font-family: var(--font); font-size: 0.55rem; color: var(--bg);
+      background: var(--pink); border: none; padding: 0.6rem 1.2rem;
+      cursor: pointer; letter-spacing: 0.1em; box-shadow: 0 0 12px var(--pink); transition: transform 0.1s;
+    }
+    .btn:hover { transform: scale(1.05); }
+    .hint { font-size: 0.38rem; color: #444; letter-spacing: 0.08em; text-align: center; line-height: 2.2; }
+    @keyframes flicker { 0%,100%{opacity:1} 90%{opacity:1} 91%{opacity:0.3} 94%{opacity:1} 97%{opacity:0.3} }
+  </style>
+</head>
+<body>
+  <div style="position:relative;">
+    <canvas id="gameCanvas" width="480" height="500"></canvas>
+    <div id="overlay">
+      <div class="overlay-title" id="overlayTitle">🏓 PONG</div>
+      <div class="overlay-score hidden" id="overlayScore"></div>
+      <button class="btn" id="startBtn">▶ START</button>
+      <div class="hint">↑ ↓ / W S / MOUSE para mover<br>Primero en llegar a 7 gana</div>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas')
+const ctx = canvas.getContext('2d')
+const W = canvas.width, H = canvas.height
+
+const overlay      = document.getElementById('overlay')
+const overlayTitle = document.getElementById('overlayTitle')
+const overlayScore = document.getElementById('overlayScore')
+const startBtn     = document.getElementById('startBtn')
+
+const PAD_W = 10, PAD_H = 70, PAD_MARGIN = 16
+const BALL_SIZE = 10
+const WIN_SCORE = 7
+const CPU_SPEED = 3.2
+
+let player, cpu, ball, scoreP, scoreCPU, running, paused, raf
+let particles = []
+
+function init() {
+  player  = { x: PAD_MARGIN, y: H/2 - PAD_H/2, w: PAD_W, h: PAD_H, speed: 5 }
+  cpu     = { x: W - PAD_MARGIN - PAD_W, y: H/2 - PAD_H/2, w: PAD_W, h: PAD_H }
+  ball    = resetBall()
+  scoreP  = 0; scoreCPU = 0
+  running = true; paused = false
+  particles = []
+}
+
+function resetBall(dir = 0) {
+  const angle = (Math.random() * 0.6 - 0.3) + (dir === 0 ? (Math.random()>0.5?0:Math.PI) : dir)
+  const speed = 5
+  return {
+    x: W/2, y: H/2,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    trail: []
+  }
+}
+
+// ── Loop ─────────────────────────────────────────────────────
+function tick() {
+  if (!running) return
+  if (!paused) update()
+  draw()
+  raf = requestAnimationFrame(tick)
+}
+
+function update() {
+  movePaddles()
+  moveBall()
+  moveCPU()
+  updateParticles()
+}
+
+// ── Paddles ──────────────────────────────────────────────────
+function movePaddles() {
+  if ((keys['ArrowUp']||keys['w']||keys['W']) && player.y > 0) player.y -= player.speed
+  if ((keys['ArrowDown']||keys['s']||keys['S']) && player.y + player.h < H) player.y += player.speed
+}
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect()
+  player.y = e.clientY - rect.top - player.h/2
+  player.y = Math.max(0, Math.min(H - player.h, player.y))
+})
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault()
+  const rect = canvas.getBoundingClientRect()
+  player.y = e.touches[0].clientY - rect.top - player.h/2
+  player.y = Math.max(0, Math.min(H - player.h, player.y))
+}, {passive:false})
+
+function moveCPU() {
+  // CPU con un poco de "imperfección"
+  const target = ball.y - cpu.h/2 + (Math.random()-0.5)*12
+  if (cpu.y + cpu.h/2 < target) cpu.y = Math.min(cpu.y + CPU_SPEED, H - cpu.h)
+  else                           cpu.y = Math.max(cpu.y - CPU_SPEED, 0)
+}
+
+// ── Ball ─────────────────────────────────────────────────────
+function moveBall() {
+  ball.trail.push({x: ball.x, y: ball.y})
+  if (ball.trail.length > 10) ball.trail.shift()
+
+  ball.x += ball.vx
+  ball.y += ball.vy
+
+  // Techo / suelo
+  if (ball.y <= 0)        { ball.y = 0;      ball.vy *= -1 }
+  if (ball.y + BALL_SIZE >= H) { ball.y = H - BALL_SIZE; ball.vy *= -1 }
+
+  // Pala jugador
+  if (ball.x <= player.x + player.w && ball.x >= player.x &&
+      ball.y + BALL_SIZE >= player.y && ball.y <= player.y + player.h && ball.vx < 0) {
+    const hit = (ball.y + BALL_SIZE/2 - (player.y + player.h/2)) / (player.h/2)
+    const angle = hit * 1.1
+    const speed = Math.min(Math.hypot(ball.vx, ball.vy) + 0.3, 12)
+    ball.vx = Math.cos(angle) * speed
+    ball.vy = Math.sin(angle) * speed
+    ball.x  = player.x + player.w
+    spawnParticles(ball.x, ball.y, '#00f5ff', 6)
+  }
+
+  // Pala CPU
+  if (ball.x + BALL_SIZE >= cpu.x && ball.x + BALL_SIZE <= cpu.x + cpu.w &&
+      ball.y + BALL_SIZE >= cpu.y && ball.y <= cpu.y + cpu.h && ball.vx > 0) {
+    const hit = (ball.y + BALL_SIZE/2 - (cpu.y + cpu.h/2)) / (cpu.h/2)
+    const angle = Math.PI - hit * 1.1
+    const speed = Math.min(Math.hypot(ball.vx, ball.vy) + 0.3, 12)
+    ball.vx = Math.cos(angle) * speed
+    ball.vy = Math.sin(angle) * speed
+    ball.x  = cpu.x - BALL_SIZE
+    spawnParticles(ball.x, ball.y, '#ff2d78', 6)
+  }
+
+  // Punto
+  if (ball.x < 0) {
+    scoreCPU++
+    spawnParticles(W/2, H/2, '#ff2d78', 20)
+    if (scoreCPU >= WIN_SCORE) { endGame(false); return }
+    ball = resetBall(0)
+  }
+  if (ball.x > W) {
+    scoreP++
+    spawnParticles(W/2, H/2, '#39ff14', 20)
+    if (scoreP >= WIN_SCORE) { endGame(true); return }
+    ball = resetBall(Math.PI)
+  }
+}
+
+// ── Partículas ───────────────────────────────────────────────
+function spawnParticles(x, y, color, n) {
+  for (let i=0; i<n; i++) {
+    const a = Math.random()*Math.PI*2, s = 1+Math.random()*4
+    particles.push({x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life:1, color, size: 2+Math.random()*3})
+  }
+}
+function updateParticles() {
+  particles = particles.filter(p => { p.x+=p.vx; p.y+=p.vy; p.life-=0.04; return p.life>0 })
+}
+
+// ── Draw ─────────────────────────────────────────────────────
+function draw() {
+  ctx.fillStyle = 'rgba(10,10,15,0.82)'
+  ctx.fillRect(0,0,W,H)
+
+  // Línea central
+  ctx.setLineDash([8,8])
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+  ctx.lineWidth = 2
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke()
+  ctx.setLineDash([])
+
+  // Marcador
+  ctx.font = '1.4rem var(--font, monospace)'
+  ctx.textAlign = 'center'
+  ctx.fillStyle  = '#00f5ff'
+  ctx.shadowColor = '#00f5ff'; ctx.shadowBlur = 10
+  ctx.fillText(scoreP, W/2 - 60, 40)
+  ctx.fillStyle  = '#ff2d78'
+  ctx.shadowColor = '#ff2d78'
+  ctx.fillText(scoreCPU, W/2 + 60, 40)
+  ctx.shadowBlur = 0
+
+  // Etiquetas
+  ctx.font = '0.3rem var(--font, monospace)'
+  ctx.fillStyle = '#333'
+  ctx.fillText('YOU', W/2 - 60, 55)
+  ctx.fillText('CPU', W/2 + 60, 55)
+
+  // Trail de la bola
+  ball.trail.forEach((t, i) => {
+    const alpha = i / ball.trail.length * 0.5
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`
+    const s = BALL_SIZE * (i / ball.trail.length)
+    ctx.fillRect(t.x, t.y, s, s)
+  })
+
+  // Bola
+  ctx.fillStyle  = '#ffffff'
+  ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 16
+  ctx.fillRect(ball.x, ball.y, BALL_SIZE, BALL_SIZE)
+  ctx.shadowBlur = 0
+
+  // Palas
+  drawPad(player, '#00f5ff')
+  drawPad(cpu,    '#ff2d78')
+
+  // Partículas
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life
+    ctx.fillStyle   = p.color
+    ctx.shadowColor = p.color; ctx.shadowBlur = 6
+    ctx.fillRect(p.x, p.y, p.size, p.size)
+  })
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0
+}
+
+function drawPad(pad, color) {
+  ctx.fillStyle  = color
+  ctx.shadowColor = color; ctx.shadowBlur = 14
+  ctx.fillRect(pad.x, pad.y, pad.w, pad.h)
+  // Brillo central
+  ctx.fillStyle = 'rgba(255,255,255,0.25)'
+  ctx.shadowBlur = 0
+  ctx.fillRect(pad.x+2, pad.y + pad.h/2 - 6, pad.w-4, 12)
+}
+
+// ── End ──────────────────────────────────────────────────────
+function endGame(win) {
+  cancelAnimationFrame(raf)
+  running = false
+  overlayTitle.textContent = win ? '🏆 YOU WIN!' : '💀 CPU WINS'
+  overlayTitle.className   = 'overlay-title ' + (win ? 'win' : 'lose')
+  overlayScore.textContent = `${scoreP} - ${scoreCPU}`
+  overlayScore.classList.remove('hidden')
+  startBtn.textContent = '↺ RETRY'
+  overlay.classList.remove('hidden')
+}
+
+// ── Controles ────────────────────────────────────────────────
+const keys = {}
+document.addEventListener('keydown', e => {
+  keys[e.key] = true
+  if (['ArrowUp','ArrowDown'].includes(e.key)) e.preventDefault()
+  if ((e.key==='p'||e.key==='P') && running) paused = !paused
+})
+document.addEventListener('keyup', e => { keys[e.key] = false })
+
+startBtn.addEventListener('click', e => {
+  e.stopPropagation()
+  overlay.classList.add('hidden')
+  cancelAnimationFrame(raf)
+  init()
+  raf = requestAnimationFrame(tick)
+})
+</script>
+</body>
+</html>

@@ -45,6 +45,42 @@ export const games = [
     file:        '/games/breakout.html',
     tags:        ['acción'],
   },
+  {
+    id: 'space-invaders', 
+    title: 'Space Invaders',
+    description: 'Defiende la Tierra de la invasión alienígena',
+    emoji: '👾', 
+    color: '#ff2d78',
+    file: '/games/spaceInvaders.html', 
+    tags: ['arcade', 'acción'],
+  },
+  {
+    id: '2048', 
+    title: '2048',
+    description: 'Combina losetas para llegar al 2048',
+    emoji: '🔢', 
+    color: '#00f5ff',
+    file: '/games/2048.html', 
+    tags: ['puzzle'],
+  },
+  {
+    id: 'pong', 
+    title: 'Pong',
+    description: 'El clásico cara a cara contra la CPU',
+    emoji: '🏓', 
+    color: '#ff2d78',
+    file: '/games/pong.html', 
+    tags: ['clásico', '1vs1'],
+  },
+  {
+    id: 'flappy-bird', 
+    title: 'Flappy Bird',
+    description: 'Vuela sin chocar con las tuberías',
+    emoji: '🐦', 
+    color: '#ffe600',
+    file: '/games/flappyBird.html', 
+    tags: ['arcade', 'habilidad'],
+  },
 ]
 
 export default games
