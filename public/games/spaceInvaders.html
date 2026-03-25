@@ -117,7 +117,7 @@ const ALIEN_SHAPES = [
 const ALIEN_COLORS = ['#ff2d78','#ff2d78','#ffe600','#ffe600','#39ff14']
 const ALIEN_POINTS = [30, 30, 20, 20, 10]
 
-const ROWS = 5, COLS = 11
+const ROWS = 5, COLS = 9
 const ALIEN_W = 36, ALIEN_H = 28, ALIEN_GAP_X = 8, ALIEN_GAP_Y = 6
 const PLAYER_W = 40, PLAYER_H = 16
 const BULLET_W = 3, BULLET_H = 12
@@ -229,7 +229,7 @@ function moveAliens() {
 
   let hitWall = false
   alive.forEach(a => {
-    a.x += alienDir * (alienSpeed * interval * 0.5 + wave * 0.3)
+    a.x += alienDir * (alienSpeed * interval * 0.45 + wave * 0.20)
     if (a.x <= 0 || a.x + ALIEN_W >= W) hitWall = true
   })
   if (hitWall) {
@@ -360,7 +360,7 @@ function drawAliens() {
     const oy = a.y + (ALIEN_H - rows * ps) / 2
 
     ctx.shadowColor = a.color
-    ctx.shadowBlur  = 6
+
     ctx.fillStyle   = a.color
 
     // Animación: frame alterno mueve antenas
@@ -372,7 +372,7 @@ function drawAliens() {
         }
       }
     }
-    ctx.shadowBlur = 0
+
   })
 }
 
@@ -392,27 +392,27 @@ function drawPlayer() {
   ]
   ctx.fillStyle  = '#00f5ff'
   ctx.shadowColor = '#00f5ff'
-  ctx.shadowBlur  = 10
+
   ship.forEach((row, r) => row.forEach((cell, c) => {
     if (cell) ctx.fillRect(x + c*ps - ps, y + r*(h/ship.length), ps-1, h/ship.length - 1)
   }))
-  ctx.shadowBlur = 0
+
 }
 
 function drawBullets() {
   bullets.forEach(b => {
     ctx.fillStyle  = '#39ff14'
     ctx.shadowColor = '#39ff14'
-    ctx.shadowBlur  = 10
+
     ctx.fillRect(b.x, b.y, b.w, b.h)
   })
   alienBullets.forEach(b => {
     ctx.fillStyle  = '#ff2d78'
     ctx.shadowColor = '#ff2d78'
-    ctx.shadowBlur  = 8
+
     ctx.fillRect(b.x, b.y, b.w, b.h)
   })
-  ctx.shadowBlur = 0
+
 }
 
 function drawShields() {
@@ -420,14 +420,14 @@ function drawShields() {
   shields.forEach(s => {
     ctx.fillStyle  = '#39ff14'
     ctx.shadowColor = '#39ff14'
-    ctx.shadowBlur  = 4
+
     for (let py = 0; py < s.pixels.length; py++) {
       for (let px = 0; px < s.pixels[py].length; px++) {
         if (s.pixels[py][px]) ctx.fillRect(s.x + px*ps, s.y + py*ps, ps, ps)
       }
     }
   })
-  ctx.shadowBlur = 0
+
 }
 
 function drawParticles() {
@@ -435,11 +435,11 @@ function drawParticles() {
     ctx.globalAlpha = p.life
     ctx.fillStyle   = p.color
     ctx.shadowColor = p.color
-    ctx.shadowBlur  = 6
+
     ctx.fillRect(p.x, p.y, p.size, p.size)
   })
   ctx.globalAlpha = 1
-  ctx.shadowBlur  = 0
+
 }
 
 // ── Game Over ────────────────────────────────────────────────
