@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Breakout</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:  #39ff14;
+      --pink:   #ff2d78;
+      --cyan:   #00f5ff;
+      --yellow: #ffe600;
+      --purple: #bf00ff;
+      --bg:     #0a0a0f;
+      --font:   'Press Start 2P', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: var(--font);
+      overflow: hidden;
+      background-image: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px
+      );
+    }
+
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      width: 420px;
+      margin-bottom: 10px;
+    }
+    .hud-item { font-size: 0.5rem; color: var(--cyan); letter-spacing: 0.1em; }
+    .hud-item span { color: var(--yellow); text-shadow: 0 0 8px var(--yellow); }
+
+    /* vidas como corazones */
+    #livesDisplay { color: var(--pink); text-shadow: 0 0 8px var(--pink); letter-spacing: 0.05em; }
+
+    #gameCanvas {
+      border: 2px solid var(--cyan);
+      box-shadow: 0 0 15px var(--cyan), 0 0 40px rgba(0,245,255,0.2);
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.2rem;
+      background: rgba(10,10,15,0.88);
+    }
+    #overlay.hidden { display: none; }
+
+    .overlay-title {
+      font-size: clamp(0.75rem, 2.5vw, 1.1rem);
+      color: var(--cyan);
+      text-shadow: 0 0 12px var(--cyan), 0 0 30px rgba(0,245,255,0.4);
+      text-align: center;
+      line-height: 2;
+      animation: flicker 4s step-end infinite;
+    }
+    .overlay-title.win  { color: var(--yellow); text-shadow: 0 0 12px var(--yellow); animation: none; }
+    .overlay-title.lose { color: var(--pink);   text-shadow: 0 0 12px var(--pink);   animation: none; }
+
+    .overlay-score {
+      font-size: 0.55rem;
+      color: var(--yellow);
+      text-shadow: 0 0 8px var(--yellow);
+      letter-spacing: 0.15em;
+    }
+
+    .btn {
+      font-family: var(--font);
+      font-size: 0.55rem;
+      color: var(--bg);
+      background: var(--cyan);
+      border: none;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      box-shadow: 0 0 12px var(--cyan);
+      transition: transform 0.1s;
+    }
+    .btn:hover { transform: scale(1.05); }
+
+    .hint {
+      font-size: 0.4rem;
+      color: #444;
+      letter-spacing: 0.1em;
+      text-align: center;
+      line-height: 2;
+    }
+
+    @keyframes flicker {
+      0%,100%{opacity:1} 90%{opacity:1} 91%{opacity:0.3} 94%{opacity:1} 97%{opacity:0.3}
+    }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <div class="hud-item">SCORE <span id="scoreDisplay">0</span></div>
+    <div class="hud-item">BEST  <span id="bestDisplay">0</span></div>
+    <div class="hud-item">LIVES <span id="livesDisplay">♥♥♥</span></div>
+  </div>
+
+  <div style="position:relative;">
+    <canvas id="gameCanvas" width="420" height="500"></canvas>
+
+    <div id="overlay">
+      <div class="overlay-title" id="overlayTitle">🧱 BREAKOUT</div>
+      <div class="overlay-score hidden" id="overlayScore"></div>
+      <button class="btn" id="startBtn">▶ START</button>
+      <div class="hint">MOUSE / A-D / FLECHAS para mover<br>P para pausar</div>
+    </div>
+  </div>
+
+<script>
+const canvas  = document.getElementById('gameCanvas')
+const ctx     = canvas.getContext('2d')
+const W = canvas.width, H = canvas.height
+
+const overlay      = document.getElementById('overlay')
+const overlayTitle = document.getElementById('overlayTitle')
+const overlayScore = document.getElementById('overlayScore')
+const startBtn     = document.getElementById('startBtn')
+const scoreDisplay = document.getElementById('scoreDisplay')
+const bestDisplay  = document.getElementById('bestDisplay')
+const livesDisplay = document.getElementById('livesDisplay')
+
+// ── Config ──────────────────────────────────────────────────
+const PADDLE_W = 80, PADDLE_H = 10, PADDLE_Y = H - 40
+const BALL_R   = 7
+const BRICK_COLS = 10, BRICK_ROWS = 5
+const BRICK_W  = (W - 20) / BRICK_COLS
+const BRICK_H  = 18
+const BRICK_PAD = 2
+const BRICK_OFF_X = 10, BRICK_OFF_Y = 50
+
+// Colores por fila (neón)
+const ROW_COLORS = ['#ff2d78','#ffe600','#39ff14','#00f5ff','#bf00ff']
+const ROW_POINTS = [50, 40, 30, 20, 10]
+
+let paddle, ball, bricks, score, best = 0, lives, paused, running, raf
+
+// ── Init ────────────────────────────────────────────────────
+function init() {
+  paddle = { x: W/2 - PADDLE_W/2, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H, speed: 0 }
+  ball   = {
+    x: W/2, y: PADDLE_Y - BALL_R - 2,
+    vx: 3.5 * (Math.random() > 0.5 ? 1 : -1),
+    vy: -4,
+    launched: false
+  }
+  bricks = []
+  for (let r = 0; r < BRICK_ROWS; r++) {
+    for (let c = 0; c < BRICK_COLS; c++) {
+      bricks.push({
+        x: BRICK_OFF_X + c * BRICK_W,
+        y: BRICK_OFF_Y + r * BRICK_H,
+        w: BRICK_W - BRICK_PAD,
+        h: BRICK_H - BRICK_PAD,
+        alive: true,
+        color: ROW_COLORS[r],
+        points: ROW_POINTS[r]
+      })
+    }
+  }
+  score  = 0
+  lives  = 3
+  paused = false
+  running = true
+  updateHUD()
+}
+
+// ── Game loop ───────────────────────────────────────────────
+function tick() {
+  if (!running) return
+  if (!paused) {
+    movePaddle()
+    moveBall()
+    checkCollisions()
+    draw()
+  }
+  raf = requestAnimationFrame(tick)
+}
+
+// ── Paddle movement ─────────────────────────────────────────
+const keys = {}
+document.addEventListener('keydown', e => { keys[e.key] = true;  if(['ArrowLeft','ArrowRight','a','d','A','D'].includes(e.key)) e.preventDefault() })
+document.addEventListener('keyup',   e => { keys[e.key] = false })
+
+// mouse / touch
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect()
+  const mx = e.clientX - rect.left
+  paddle.x = Math.max(0, Math.min(W - paddle.w, mx - paddle.w / 2))
+})
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault()
+  const rect = canvas.getBoundingClientRect()
+  const mx = e.touches[0].clientX - rect.left
+  paddle.x = Math.max(0, Math.min(W - paddle.w, mx - paddle.w / 2))
+}, { passive: false })
+
+function movePaddle() {
+  const spd = 6
+  if (keys['ArrowLeft']  || keys['a'] || keys['A']) paddle.x = Math.max(0, paddle.x - spd)
+  if (keys['ArrowRight'] || keys['d'] || keys['D']) paddle.x = Math.min(W - paddle.w, paddle.x + spd)
+  // Si la bola no ha sido lanzada, sigue la pala
+  if (!ball.launched) ball.x = paddle.x + paddle.w / 2
+}
+
+// ── Ball ────────────────────────────────────────────────────
+function moveBall() {
+  if (!ball.launched) return
+  ball.x += ball.vx
+  ball.y += ball.vy
+
+  // Paredes laterales
+  if (ball.x - BALL_R < 0)  { ball.x = BALL_R;  ball.vx *= -1 }
+  if (ball.x + BALL_R > W)  { ball.x = W - BALL_R; ball.vx *= -1 }
+  // Techo
+  if (ball.y - BALL_R < 0)  { ball.y = BALL_R;  ball.vy *= -1 }
+  // Suelo → perder vida
+  if (ball.y + BALL_R > H) {
+    lives--
+    updateHUD()
+    if (lives <= 0) return gameOver(false)
+    // Reset bola
+    ball.launched = false
+    ball.x = paddle.x + paddle.w / 2
+    ball.y = PADDLE_Y - BALL_R - 2
+    ball.vx = 3.5 * (Math.random() > 0.5 ? 1 : -1)
+    ball.vy = -4
+  }
+}
+
+function checkCollisions() {
+  // Pala
+  if (
+    ball.y + BALL_R >= paddle.y &&
+    ball.y - BALL_R <= paddle.y + paddle.h &&
+    ball.x >= paddle.x &&
+    ball.x <= paddle.x + paddle.w &&
+    ball.vy > 0
+  ) {
+    // Ángulo según dónde impacta en la pala
+    const hit = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2)
+    ball.vx = hit * 5
+    ball.vy = -Math.abs(ball.vy)
+    // Speed cap
+    const spd = Math.hypot(ball.vx, ball.vy)
+    if (spd > 7) { ball.vx *= 7/spd; ball.vy *= 7/spd }
+  }
+
+  // Ladrillos
+  let remaining = 0
+  for (const b of bricks) {
+    if (!b.alive) continue
+    remaining++
+    if (
+      ball.x + BALL_R > b.x && ball.x - BALL_R < b.x + b.w &&
+      ball.y + BALL_R > b.y && ball.y - BALL_R < b.y + b.h
+    ) {
+      b.alive = false
+      remaining--
+      score += b.points
+      updateHUD()
+
+      // Determinar lado de impacto
+      const overlapL = (ball.x + BALL_R) - b.x
+      const overlapR = (b.x + b.w) - (ball.x - BALL_R)
+      const overlapT = (ball.y + BALL_R) - b.y
+      const overlapB = (b.y + b.h) - (ball.y - BALL_R)
+      const minH = Math.min(overlapL, overlapR)
+      const minV = Math.min(overlapT, overlapB)
+      if (minH < minV) ball.vx *= -1
+      else             ball.vy *= -1
+      break
+    }
+  }
+  if (remaining === 0) gameOver(true)
+}
+
+// ── Draw ────────────────────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, W, H)
+
+  // Fondo
+  ctx.fillStyle = '#0a0a0f'
+  ctx.fillRect(0, 0, W, H)
+
+  // Ladrillos
+  for (const b of bricks) {
+    if (!b.alive) continue
+    ctx.fillStyle = b.color
+    ctx.shadowColor = b.color
+    ctx.shadowBlur = 8
+    ctx.fillRect(b.x, b.y, b.w, b.h)
+    // brillo interno
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'
+    ctx.shadowBlur = 0
+    ctx.fillRect(b.x + 1, b.y + 1, b.w - 2, 4)
+  }
+
+  // Pala
+  const grad = ctx.createLinearGradient(paddle.x, 0, paddle.x + paddle.w, 0)
+  grad.addColorStop(0,   'rgba(0,245,255,0.4)')
+  grad.addColorStop(0.5, '#00f5ff')
+  grad.addColorStop(1,   'rgba(0,245,255,0.4)')
+  ctx.fillStyle = grad
+  ctx.shadowColor = '#00f5ff'
+  ctx.shadowBlur  = 12
+  ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h)
+
+  // Bola
+  ctx.beginPath()
+  ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2)
+  ctx.fillStyle  = '#ffffff'
+  ctx.shadowColor = '#ffffff'
+  ctx.shadowBlur  = 15
+  ctx.fill()
+  ctx.closePath()
+
+  ctx.shadowBlur = 0
+}
+
+// ── Game Over / Win ─────────────────────────────────────────
+function gameOver(won) {
+  cancelAnimationFrame(raf)
+  running = false
+  if (score > best) { best = score; bestDisplay.textContent = best }
+
+  overlayTitle.textContent = won ? '🏆 YOU WIN!' : '💀 GAME OVER'
+  overlayTitle.className   = 'overlay-title ' + (won ? 'win' : 'lose')
+  overlayScore.textContent = `SCORE: ${score}`
+  overlayScore.classList.remove('hidden')
+  startBtn.textContent = '↺ RETRY'
+  overlay.classList.remove('hidden')
+}
+
+// ── HUD ─────────────────────────────────────────────────────
+function updateHUD() {
+  scoreDisplay.textContent = score
+  bestDisplay.textContent  = best
+  livesDisplay.textContent = '♥'.repeat(Math.max(0, lives))
+}
+
+// ── Teclas extra ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.key === 'p' || e.key === 'P') && running) paused = !paused
+  if (e.key === ' ' && running && !ball.launched) {
+    ball.launched = true
+    e.preventDefault()
+  }
+})
+canvas.addEventListener('click', () => {
+  if (running && !ball.launched) ball.launched = true
+})
+
+// ── Start ────────────────────────────────────────────────────
+startBtn.addEventListener('click', () => {
+  overlay.classList.add('hidden')
+  cancelAnimationFrame(raf)
+  init()
+  raf = requestAnimationFrame(tick)
+})
+</script>
+</body>
+</html>

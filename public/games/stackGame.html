@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stack Game</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:  #39ff14;
+      --pink:   #ff2d78;
+      --cyan:   #00f5ff;
+      --yellow: #ffe600;
+      --bg:     #0a0a0f;
+      --font:   'Press Start 2P', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: var(--font);
+      overflow: hidden;
+      background-image: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px
+      );
+    }
+
+    /* ── HUD ── */
+    #hud {
+      display: flex;
+      justify-content: space-between;
+      width: 320px;
+      margin-bottom: 10px;
+    }
+    .hud-item {
+      font-size: 0.48rem;
+      color: var(--cyan);
+      letter-spacing: 0.1em;
+    }
+    .hud-item span {
+      color: var(--yellow);
+      text-shadow: 0 0 8px var(--yellow);
+    }
+
+    /* ── Canvas ── */
+    #gameCanvas {
+      border: 2px solid var(--green);
+      box-shadow: 0 0 15px var(--green), 0 0 40px rgba(57,255,20,0.15);
+      display: block;
+      image-rendering: pixelated;
+      cursor: pointer;
+    }
+
+    /* ── Overlay ── */
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.2rem;
+      background: rgba(10,10,15,0.9);
+    }
+    #overlay.hidden { display: none; }
+
+    .overlay-title {
+      font-size: clamp(0.75rem, 2.5vw, 1rem);
+      color: var(--green);
+      text-shadow: 0 0 12px var(--green), 0 0 30px rgba(57,255,20,0.4);
+      text-align: center;
+      line-height: 2.2;
+      animation: flicker 4s step-end infinite;
+    }
+    .overlay-title.lose {
+      color: var(--pink);
+      text-shadow: 0 0 12px var(--pink);
+      animation: none;
+    }
+
+    .overlay-score {
+      font-size: 0.55rem;
+      color: var(--yellow);
+      text-shadow: 0 0 8px var(--yellow);
+      letter-spacing: 0.15em;
+    }
+
+    .btn {
+      font-family: var(--font);
+      font-size: 0.55rem;
+      color: var(--bg);
+      background: var(--green);
+      border: none;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
+      letter-spacing: 0.1em;
+      box-shadow: 0 0 12px var(--green);
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .btn:hover { transform: scale(1.05); box-shadow: 0 0 24px var(--green); }
+
+    .hint {
+      font-size: 0.38rem;
+      color: #444;
+      letter-spacing: 0.08em;
+      text-align: center;
+      line-height: 2.2;
+    }
+
+    /* ── Combo popup ── */
+    #combo {
+      position: absolute;
+      font-size: 0.6rem;
+      color: var(--yellow);
+      text-shadow: 0 0 10px var(--yellow);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      letter-spacing: 0.1em;
+    }
+    #combo.show { opacity: 1; animation: float-up 0.9s ease forwards; }
+
+    /* ── Animaciones ── */
+    @keyframes flicker {
+      0%,100%{opacity:1} 90%{opacity:1} 91%{opacity:0.3} 94%{opacity:1} 97%{opacity:0.3}
+    }
+    @keyframes float-up {
+      0%   { transform: translateY(0);   opacity: 1; }
+      100% { transform: translateY(-40px); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="hud">
+    <div class="hud-item">SCORE <span id="scoreDisplay">0</span></div>
+    <div class="hud-item">BEST  <span id="bestDisplay">0</span></div>
+    <div class="hud-item">COMBO <span id="comboDisplay">x1</span></div>
+  </div>
+
+  <div style="position:relative;">
+    <canvas id="gameCanvas" width="320" height="500"></canvas>
+    <div id="combo">PERFECT!</div>
+
+    <div id="overlay">
+      <div class="overlay-title" id="overlayTitle">🧱 STACK<br>GAME</div>
+      <div class="overlay-score hidden" id="overlayScore"></div>
+      <button class="btn" id="startBtn">▶ START</button>
+      <div class="hint">ESPACIO / CLICK / TAP<br>para soltar la caja</div>
+    </div>
+  </div>
+
+<script>
+  const canvas       = document.getElementById('gameCanvas')
+  const ctx          = canvas.getContext('2d')
+  const overlay      = document.getElementById('overlay')
+  const overlayTitle = document.getElementById('overlayTitle')
+  const overlayScore = document.getElementById('overlayScore')
+  const startBtn     = document.getElementById('startBtn')
+  const scoreDisplay = document.getElementById('scoreDisplay')
+  const bestDisplay  = document.getElementById('bestDisplay')
+  const comboDisplay = document.getElementById('comboDisplay')
+  const comboEl      = document.getElementById('combo')
+
+  // ── Constantes ───────────────────────────────────────────
+  const MODES = { BOUNCE: 'bounce', FALL: 'fall', GAMEOVER: 'gameover' }
+  const INITIAL_BOX_WIDTH = 180
+  const INITIAL_BOX_Y     = 600
+  const BOX_HEIGHT        = 28
+  const INITIAL_Y_SPEED   = 6
+  const INITIAL_X_SPEED   = 2
+  const PERFECT_THRESHOLD = 4   // píxeles de margen para "perfect"
+
+  // Paleta neón por nivel (cicla)
+  const NEON_PALETTE = [
+    '#39ff14','#00f5ff','#ff2d78','#ffe600','#bf00ff',
+    '#ff6600','#00ff99','#ff00cc','#33ccff','#ffcc00'
+  ]
+
+  // ── Estado ───────────────────────────────────────────────
+  let boxes, debris, scrollCounter, cameraY, current
+  let mode, xSpeed, ySpeed
+  let score, best = 0, combo, streak
+  let shakeFrames = 0
+
+  // ── Helpers de color ─────────────────────────────────────
+  function getColor(step) {
+    if (step === 0) return '#888'
+    return NEON_PALETTE[(step - 1) % NEON_PALETTE.length]
+  }
+
+  // ── Init ─────────────────────────────────────────────────
+  function init() {
+    boxes = [{
+      x: (canvas.width / 2) - (INITIAL_BOX_WIDTH / 2),
+      y: 200,
+      width: INITIAL_BOX_WIDTH,
+      color: getColor(0)
+    }]
+    debris      = { x: 0, y: 0, width: 0 }
+    current     = 1
+    mode        = MODES.BOUNCE
+    xSpeed      = INITIAL_X_SPEED
+    ySpeed      = INITIAL_Y_SPEED
+    scrollCounter = 0
+    cameraY     = 0
+    score       = 0
+    combo       = 1
+    streak      = 0
+    updateHUD()
+    cajaSuperior()
+  }
+
+  // ── Loop ─────────────────────────────────────────────────
+  let raf
+  function loop() {
+    if (mode === MODES.GAMEOVER) return
+    drawFrame()
+    raf = requestAnimationFrame(loop)
+  }
+
+  // ── Draw ─────────────────────────────────────────────────
+  function drawFrame() {
+    // Shake si acaba de perder
+    let ox = 0, oy = 0
+    if (shakeFrames > 0) {
+      ox = (Math.random() - 0.5) * 8
+      oy = (Math.random() - 0.5) * 8
+      shakeFrames--
+    }
+    ctx.save()
+    ctx.translate(ox, oy)
+
+    // Fondo con trail
+    ctx.fillStyle = 'rgba(10,10,15,0.55)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // Grid sutil
+    ctx.strokeStyle = 'rgba(30,30,58,0.4)'
+    ctx.lineWidth = 0.5
+    for (let i = 0; i < canvas.width; i += 20) {
+      ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke()
+    }
+    for (let j = 0; j < canvas.height; j += 20) {
+      ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(canvas.width,j); ctx.stroke()
+    }
+
+    drawRestos()
+    drawCajas()
+
+    if (mode === MODES.BOUNCE) movimientoCaja()
+    else if (mode === MODES.FALL) caidaCaja()
+
+    debris.y -= ySpeed
+    if (scrollCounter > 0) { cameraY++; scrollCounter-- }
+
+    ctx.restore()
+  }
+
+  // ── Dibujar cajas ─────────────────────────────────────────
+  function drawCajas() {
+    boxes.forEach((box, i) => {
+      const newY = INITIAL_BOX_Y - box.y + cameraY
+      const isTop = i === current
+
+      ctx.shadowColor = box.color
+      ctx.shadowBlur  = isTop ? 18 : 8
+
+      // Relleno principal
+      ctx.fillStyle = box.color
+      ctx.fillRect(box.x, newY, box.width, BOX_HEIGHT)
+
+      // Brillo superior
+      ctx.fillStyle = 'rgba(255,255,255,0.2)'
+      ctx.shadowBlur = 0
+      ctx.fillRect(box.x + 1, newY + 1, box.width - 2, 5)
+
+      // Borde inferior oscuro
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.fillRect(box.x, newY + BOX_HEIGHT - 4, box.width, 4)
+    })
+    ctx.shadowBlur = 0
+  }
+
+  // ── Dibujar restos ────────────────────────────────────────
+  function drawRestos() {
+    if (debris.width === 0) return
+    const newY = INITIAL_BOX_Y - debris.y + cameraY
+    ctx.fillStyle  = '#ff2d78'
+    ctx.shadowColor = '#ff2d78'
+    ctx.shadowBlur  = 10
+    ctx.fillRect(debris.x, newY, debris.width, BOX_HEIGHT)
+    ctx.shadowBlur = 0
+  }
+
+  // ── Nueva caja ────────────────────────────────────────────
+  function cajaSuperior() {
+    boxes[current] = {
+      x: 0,
+      y: (current + 10) * BOX_HEIGHT,
+      width: boxes[current - 1].width,
+      color: getColor(current)
+    }
+  }
+
+  // ── Movimiento lateral ────────────────────────────────────
+  function movimientoCaja() {
+    const box = boxes[current]
+    box.x += xSpeed
+    if (box.x + box.width > canvas.width || box.x < 0) xSpeed = -xSpeed
+  }
+
+  // ── Caída ─────────────────────────────────────────────────
+  function caidaCaja() {
+    const box  = boxes[current]
+    box.y -= ySpeed
+    const target = boxes[current - 1].y + BOX_HEIGHT
+    if (box.y <= target) {
+      box.y = target
+      validarCaida()
+    }
+  }
+
+  // ── Validar caída ─────────────────────────────────────────
+  function validarCaida() {
+    const cur  = boxes[current]
+    const prev = boxes[current - 1]
+    const diff = cur.x - prev.x
+
+    if (Math.abs(diff) >= cur.width) {
+      gameOver()
+      return
+    }
+
+    // ¿Perfect?
+    const isPerfect = Math.abs(diff) <= PERFECT_THRESHOLD
+    if (isPerfect) {
+      cur.x = prev.x      // snap perfecto
+      streak++
+      combo = Math.min(streak + 1, 4)
+      showCombo(isPerfect)
+    } else {
+      streak = 0
+      combo  = 1
+      ajustarTamaño(diff)
+      crearRestos(diff)
+    }
+
+    // Puntuación con combo
+    score += (10 + Math.floor(prev.width / 10)) * combo
+    updateHUD()
+
+    // Aumentar velocidad gradualmente
+    xSpeed += xSpeed > 0 ? 0.4 : -0.4
+
+    current++
+    scrollCounter = BOX_HEIGHT
+    mode = MODES.BOUNCE
+    cajaSuperior()
+  }
+
+  function ajustarTamaño(diff) {
+    const cur  = boxes[current]
+    const prev = boxes[current - 1]
+    if (cur.x > prev.x) {
+      cur.width -= diff
+    } else {
+      cur.width += diff
+      cur.x = prev.x
+    }
+  }
+
+  function crearRestos(diff) {
+    const cur  = boxes[current]
+    const prev = boxes[current - 1]
+    debris = {
+      x: cur.x > prev.x ? cur.x + cur.width : cur.x,
+      y: cur.y,
+      width: diff
+    }
+  }
+
+  // ── Combo popup ───────────────────────────────────────────
+  function showCombo(perfect) {
+    comboEl.textContent = perfect
+      ? (combo > 1 ? `x${combo} PERFECT!` : 'PERFECT!')
+      : `x${combo} COMBO!`
+    comboEl.className = ''
+    void comboEl.offsetWidth   // reflow para reiniciar la animación
+    comboEl.className = 'show'
+  }
+
+  // ── HUD ───────────────────────────────────────────────────
+  function updateHUD() {
+    scoreDisplay.textContent = score
+    bestDisplay.textContent  = Math.max(score, best)
+    comboDisplay.textContent = `x${combo}`
+  }
+
+  // ── Game Over ─────────────────────────────────────────────
+  function gameOver() {
+    cancelAnimationFrame(raf)
+    mode = MODES.GAMEOVER
+    shakeFrames = 18
+    if (score > best) best = score
+
+    // Flash rojo
+    ctx.fillStyle = 'rgba(255,45,120,0.25)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    setTimeout(() => {
+      overlayTitle.textContent = '💀 GAME OVER'
+      overlayTitle.className   = 'overlay-title lose'
+      overlayScore.textContent = `SCORE: ${score}`
+      overlayScore.classList.remove('hidden')
+      startBtn.textContent     = '↺ RETRY'
+      overlay.classList.remove('hidden')
+    }, 400)
+  }
+
+  // ── Controles ─────────────────────────────────────────────
+  function drop() {
+    if (mode === MODES.BOUNCE) mode = MODES.FALL
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === ' ') { e.preventDefault(); drop() }
+  })
+  canvas.addEventListener('pointerdown', drop)
+
+  // ── Start button ──────────────────────────────────────────
+  startBtn.addEventListener('click', e => {
+    e.stopPropagation()
+    overlay.classList.add('hidden')
+    cancelAnimationFrame(raf)
+    init()
+    raf = requestAnimationFrame(loop)
+  })
+</script>
+</body>
+</html>
